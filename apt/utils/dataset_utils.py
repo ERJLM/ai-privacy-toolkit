@@ -248,8 +248,8 @@ def get_nursery_dataset_pd(raw: bool = True, test_set: float = 0.2, transform_so
     :return: Dataset and labels as pandas dataframes. Returned as a tuple (x_train, y_train), (x_test, y_test)
     """
     url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/nursery/nursery.data'
-    data_dir = 'datasets/nursery'
-    data_file = 'datasets/nursery/data'
+    data_dir = '../notebooks/archive.ics.uci.edu/ml/machine-learning-databases/adult'
+    data_file = '../notebooks/archive.ics.uci.edu/ml/machine-learning-databases/adult/nursery.data'
 
     if not path.exists(data_dir):
         mkdir(data_dir)

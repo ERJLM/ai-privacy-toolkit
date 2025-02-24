@@ -8,7 +8,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.preprocessing import OneHotEncoder
 from apt.utils.datasets import ArrayDataset, DATA_PANDAS_NUMPY_TYPE
-
+from scipy.stats import wasserstein_distance
 from typing import Union, Optional
 
 
@@ -176,11 +176,13 @@ class Anonymize:
         if self.l is None:
             return True
         
-        result = 0
+        # Create a variable to store the number of unique sensitive values
+        n_unique = 0
+        
         # Get the number of unique sensitive values
         for sensitive_index in self.sensitive_indices:
-            result += len(set(rows[:, sensitive_index]))
-        return result >= self.l
+            n_unique += len(set(rows[:, sensitive_index]))
+        return n_unique >= self.l
         
         return True
     
@@ -189,42 +191,38 @@ class Anonymize:
         self.global_distribution = {}
         for idx in self.sensitive_indices:
             values, counts = np.unique(data[:, idx], return_counts=True)
-            self.global_distribution[idx] = counts / len(data)
+            self.global_distribution[idx] = dict(zip(values, counts / len(data)))
 
-    def _calculate_t_closeness(self, rows: np.ndarray) -> bool:
+    def _check_t_closeness(self, rows: np.ndarray) -> bool:
         """Checks if a group satisfies t-closeness for all sensitive attributes."""
-        
+    
         if self.t is None:
             return True
 
         for idx in self.sensitive_indices:
-            # Calculate group distribution
+        
+            # Get the group distribution
             group_values, group_counts = np.unique(rows[:, idx], return_counts=True)
             group_dist = group_counts / len(rows)
+        
+            # Get the global distribution
+            global_values = np.array(list(self.global_distribution[idx].keys()))
+            global_dist = np.array(list(self.global_distribution[idx].values()))
             
-            # Get global distribution for this attribute
-            global_dist = self.global_distribution[idx]
+            # If the values are not numerical, map the unique indices to the values
+            if not np.issubdtype(group_values.dtype, np.number):
+                all_values = np.concatenate([group_values.astype(str), global_values.astype(str)])
+                category_mapping = {val: idx for idx, val in enumerate(np.unique(all_values))} 
+                group_values = np.array([category_mapping.get(val, -1) for val in group_values])
+                global_values = np.array([category_mapping.get(val, -1) for val in global_values])
             
-            # Calculate Earth Mover's Distance (EMD)
-            # For categorical attributes, we use a simplified version where EMD is the total variation distance
-            emd = np.sum(np.abs(group_dist - global_dist)) / 2
+            # Calculate the EMD
+            emd = wasserstein_distance(group_values, global_values, u_weights=group_dist, v_weights=global_dist)
             
             if emd > self.t:
                 return False
-            
+        
         return True
-    
-    
-    def _check_t_closeness(self, rows, sensitive_index, global_distribution):
-        sensitive_values = rows[:, sensitive_index]
-        cell_distribution = Counter(sensitive_values)
-        cell_distribution = {k: v / len(sensitive_values) for k, v in cell_distribution.items()}
-    
-        global_probs = np.array([global_distribution.get(val, 0) for val in cell_distribution.keys()])
-        cell_probs = np.array(list(cell_distribution.values()))
-    
-        return wasserstein_distance(global_probs, cell_probs) <= self.t
-
 
     def _find_representatives(self, x, x_anonymizer_train, cells):
         
@@ -234,6 +232,7 @@ class Anonymize:
             all_one_hot_features = set([feature for encoded in self.quasi_identifer_slices for feature in encoded])
         else:
             all_one_hot_features = set()
+            
         for cell in cells:
             cell['representative'] = {}
             # get all rows in cell
@@ -242,12 +241,24 @@ class Anonymize:
             rows = x[indexes]
             
             # Check l-diversity & t-closeness
-            # Cells that do not meet l-diversity & t-closeness are supressed
+            # Cells that do not meet l-diversity or t-closeness are supressed by using -99 as a placeholder
+            # if the sensitive index is numerical and "*" otherwise.
             if self.l and not self._check_l_diversity(rows):
-                continue 
-            if self.t and not self._check_t_closeness(rows, self.sensitive_indices, global_distribution):
-                continue  # Skip non-close cells
+                for idx in self.sensitive_indices:
+                    if idx in self.categorical_features:
+                        rows[:, idx] = "*"
+                    else:
+                        rows[:, idx] = -99
+                x[indexes] = rows
             
+            if self.t and not self._check_t_closeness(rows):
+                for idx in self.sensitive_indices:
+                    if idx in self.categorical_features:
+                        rows[:, idx] = "*"
+                    else:
+                        rows[:, idx] = -99  
+                x[indexes] = rows
+                
             done = set()
             for feature in self.quasi_identifiers:  # self.quasi_identifiers are numerical indexes
                 if feature not in done:
@@ -309,7 +320,7 @@ class Anonymize:
         numeric_transformer = Pipeline(
             steps=[('imputer', SimpleImputer(strategy='constant', fill_value=0))]
         )
-        categorical_transformer = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        categorical_transformer = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
         preprocessor = ColumnTransformer(
             transformers=[
                 ("num", numeric_transformer, numeric_features),
