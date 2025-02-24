@@ -37,6 +37,13 @@ class Anonymize:
     :param train_only_QI: The required method to train data set for anonymization. Default is
                           to train the tree on all features.
     :type train_only_QI: boolean, optional
+    :type l: int, optional
+    :param l: The l-diversity parameter that determines the minimum number of distinct sensitive values in each group. Should be at least 1.
+    :type t: float, optional
+    :param t: The t-closeness parameter that ensures that the sensitive data within each group is statistically similar to the sensitive data within the whole dataset.
+              Should be between 0 and 1.
+    :type sensitive_attributes, optional
+    :param sensitive_attributes: List containing all the sensitive attributes.
     """
 
     def __init__(self, k: int,
@@ -44,13 +51,25 @@ class Anonymize:
                  quasi_identifer_slices: Optional[list] = None,
                  categorical_features: Optional[list] = None,
                  is_regression: Optional[bool] = False,
-                 train_only_QI: Optional[bool] = False):
+                 train_only_QI: Optional[bool] = False,
+                 l: Optional[int] = None,  
+                 t: Optional[float] = None,  
+                 sensitive_attributes: Optional[list] = None): 
         if k < 2:
             raise ValueError("k should be a positive integer with a value of 2 or higher")
+        if l and l < 1:
+            raise ValueError("l should be at least 1")
+        if t and not (0 <= t <= 1):
+            raise ValueError("t should be between 0 and 1")
         if quasi_identifiers is None or len(quasi_identifiers) < 1:
             raise ValueError("The list of quasi-identifiers cannot be empty")
+        if (l or t) and not sensitive_attributes:
+            raise ValueError("Sensitive attribute must be provided for l-diversity and t-closeness")
 
         self.k = k
+        self.l = l
+        self.t = t
+        self.sensitive_attributes = sensitive_attributes
         self.quasi_identifiers = quasi_identifiers
         self.categorical_features = categorical_features
         self.is_regression = is_regression
@@ -58,6 +77,7 @@ class Anonymize:
         self.features_names = None
         self.features = None
         self.quasi_identifer_slices = quasi_identifer_slices
+        self.global_distribution = None
 
     def anonymize(self, dataset: ArrayDataset) -> DATA_PANDAS_NUMPY_TYPE:
         """
@@ -85,6 +105,15 @@ class Anonymize:
         if self.categorical_features and not set(self.categorical_features).issubset(set(self.features_names)):
             raise ValueError('Categorical features should bs a subset of the supplied features or indexes in range of '
                              'the data columns')
+        
+        # Get the indices of the sensitive attributes    
+        if self.sensitive_attributes:    
+            self.sensitive_indices = [self.features_names.index(sensitive_attribute) for sensitive_attribute in self.sensitive_attributes]
+        
+        # Calculate global distribution for t-closeness
+        if self.t is not None:
+            self._calculate_global_distribution(dataset.get_samples())
+            
         # transform quasi identifiers to indexes
         self.quasi_identifiers = [i for i, v in enumerate(self.features_names) if v in self.quasi_identifiers]
         if self.quasi_identifer_slices:
@@ -140,8 +169,65 @@ class Anonymize:
         self._nodes = leaves
         self._find_representatives(x, x_anonymizer_train, cells_by_id.values())
         return cells_by_id
+    
+    def _check_l_diversity(self, rows: np.ndarray) -> bool:
+        """Checks if a group satisfies l-diversity for all sensitive attributes."""
+        
+        if self.l is None:
+            return True
+        
+        result = 0
+        # Get the number of unique sensitive values
+        for sensitive_index in self.sensitive_indices:
+            result += len(set(rows[:, sensitive_index]))
+        return result >= self.l
+        
+        return True
+    
+    def _calculate_global_distribution(self, data: np.ndarray):
+        """Calculate the global distribution of sensitive attributes."""
+        self.global_distribution = {}
+        for idx in self.sensitive_indices:
+            values, counts = np.unique(data[:, idx], return_counts=True)
+            self.global_distribution[idx] = counts / len(data)
+
+    def _calculate_t_closeness(self, rows: np.ndarray) -> bool:
+        """Checks if a group satisfies t-closeness for all sensitive attributes."""
+        
+        if self.t is None:
+            return True
+
+        for idx in self.sensitive_indices:
+            # Calculate group distribution
+            group_values, group_counts = np.unique(rows[:, idx], return_counts=True)
+            group_dist = group_counts / len(rows)
+            
+            # Get global distribution for this attribute
+            global_dist = self.global_distribution[idx]
+            
+            # Calculate Earth Mover's Distance (EMD)
+            # For categorical attributes, we use a simplified version where EMD is the total variation distance
+            emd = np.sum(np.abs(group_dist - global_dist)) / 2
+            
+            if emd > self.t:
+                return False
+            
+        return True
+    
+    
+    def _check_t_closeness(self, rows, sensitive_index, global_distribution):
+        sensitive_values = rows[:, sensitive_index]
+        cell_distribution = Counter(sensitive_values)
+        cell_distribution = {k: v / len(sensitive_values) for k, v in cell_distribution.items()}
+    
+        global_probs = np.array([global_distribution.get(val, 0) for val in cell_distribution.keys()])
+        cell_probs = np.array(list(cell_distribution.values()))
+    
+        return wasserstein_distance(global_probs, cell_probs) <= self.t
+
 
     def _find_representatives(self, x, x_anonymizer_train, cells):
+        
         # x is original data (always numpy), x_anonymizer_train is only QIs + 1-hot encoded
         node_ids = self._find_sample_nodes(x_anonymizer_train)
         if self.quasi_identifer_slices:
@@ -154,6 +240,14 @@ class Anonymize:
             indexes = [index for index, node_id in enumerate(node_ids) if node_id == cell['id']]
             # TODO: should we filter only those with majority label? (using hist)
             rows = x[indexes]
+            
+            # Check l-diversity & t-closeness
+            # Cells that do not meet l-diversity & t-closeness are supressed
+            if self.l and not self._check_l_diversity(rows):
+                continue 
+            if self.t and not self._check_t_closeness(rows, self.sensitive_indices, global_distribution):
+                continue  # Skip non-close cells
+            
             done = set()
             for feature in self.quasi_identifiers:  # self.quasi_identifiers are numerical indexes
                 if feature not in done:

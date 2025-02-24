@@ -1,10 +1,11 @@
-[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/5836/badge)](https://bestpractices.coreinfrastructure.org/projects/5836)
+Original repository: https://github.com/IBM/ai-privacy-toolkit
 
-# ai-privacy-toolkit
-<p align="center">
-  <img src="docs/images/logo with text.jpg?raw=true" width="467" title="ai-privacy-toolkit logo">
-</p>
-<br />
+### Assigment 1 - Data Protection Technologies
+
+In this work, I studied the work done in https://research.ibm.com/publications/data-minimization-for-gdpr-compliance-in-machine-learning-models, and added security related features to the corresponding code in the original github repository.
+
+First, I will start by describing the added features, and how they contribute to the security of the data. After that I will describe what was changed in the code.
+
 
 A toolkit for tools and techniques related to the privacy and compliance of AI models.
 
@@ -30,21 +31,7 @@ or join our Slack channel: https://aip360.mybluemix.net/community.
 
 We welcome new contributors! If you're interested, take a look at our [**contribution guidelines**](https://github.com/IBM/ai-privacy-toolkit/wiki/Contributing).
 
-**Related toolkits:**
-
-ai-minimization-toolkit - has been migrated into this toolkit.
-
-[differential-privacy-library](https://github.com/IBM/differential-privacy-library): A 
-general-purpose library for experimenting with, investigating and developing applications in, 
-differential privacy.
-
-[adversarial-robustness-toolbox](https://github.com/Trusted-AI/adversarial-robustness-toolbox):
-A Python library for Machine Learning Security. Includes an attack module called *inference* that contains privacy attacks on ML models 
-(membership inference, attribute inference, model inversion and database reconstruction) as well as a *privacy* metrics module that contains
-membership leakage metrics for ML models.
-
-
-Citation
---------
-Abigail Goldsteen, Ola Saadi, Ron Shmelkin, Shlomit Shachor, Natalia Razinkov,
-"AI privacy toolkit", SoftwareX, Volume 22, 2023, 101352, ISSN 2352-7110, https://doi.org/10.1016/j.softx.2023.101352.
+## References
+<a id="1">[1]</a> 
+Goldsteen, A. et al (2022). 
+Data minimization for GDPR compliance in machine learning models.

@@ -140,9 +140,9 @@ def get_adult_dataset_pd():
                 'label']
     train_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data'
     test_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test'
-    data_dir = 'datasets/adult'
-    train_file = 'datasets/adult/train'
-    test_file = 'datasets/adult/test'
+    data_dir = '../notebooks/archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data'
+    train_file = '../notebooks/archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data'
+    test_file = '../notebooks/archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test'
 
     if not path.exists(data_dir):
         mkdir(data_dir)
